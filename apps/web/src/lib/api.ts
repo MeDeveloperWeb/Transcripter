@@ -80,14 +80,28 @@ export async function listRecordings(): Promise<RecordingSummary[]> {
   return res.json();
 }
 
-export async function fetchCloudChunks(
-  recordingId: string,
-): Promise<Array<{ sequence: number; base64: string }>> {
-  const res = await fetch(`${BASE}/api/chunks/${recordingId}/audio`);
+export interface ChunkMeta {
+  id: string;
+  sequence: number;
+  status: string;
+  duration: number;
+  size: number;
+}
+
+export async function fetchChunkList(recordingId: string): Promise<ChunkMeta[]> {
+  const res = await fetch(`${BASE}/api/chunks/${recordingId}`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch audio chunks: ${res.status}`);
+    throw new Error(`Failed to fetch chunk list: ${res.status}`);
   }
   return res.json();
+}
+
+export async function downloadChunk(recordingId: string, sequence: number): Promise<ArrayBuffer> {
+  const res = await fetch(`${BASE}/api/chunks/${recordingId}/${sequence}/download`);
+  if (!res.ok) {
+    throw new Error(`Failed to download chunk ${sequence}: ${res.status}`);
+  }
+  return res.arrayBuffer();
 }
 
 export interface TranscriptData {
