@@ -11,12 +11,14 @@ Client (Browser)
     ├── 2. Store chunks in OPFS (Origin Private File System)
     ├── 3. Upload chunks to a storage bucket
     ├── 4. On success → acknowledge (ack) to the database
+    ├── 5. Trigger transcription (speech-to-text) on uploaded chunk
+    ├── 6. Store transcript result in the database
     │
     └── Recovery: if DB has ack but chunk is missing from bucket
         └── Re-send from OPFS → bucket
 ```
 
-**Main objective:** In all cases, the recording data stays accurate. OPFS acts as the durable client-side buffer — chunks are only cleared after the bucket and DB are both confirmed in sync.
+**Main objective:** In all cases, the recording data stays accurate. OPFS acts as the durable client-side buffer — chunks are only cleared after the bucket and DB are both confirmed in sync. Transcription runs server-side after a chunk is successfully stored, keeping it decoupled from the upload-critical path.
 
 ### Flow Details
 
@@ -24,14 +26,15 @@ Client (Browser)
 2. **OPFS storage** — Each chunk is persisted to the Origin Private File System before any network call, so nothing is lost if the tab closes or the network drops
 3. **Bucket upload** — Chunks are uploaded to a storage bucket (can be a local bucket for testing, e.g. MinIO or a local S3-compatible store)
 4. **DB acknowledgment** — Once the bucket confirms receipt, an ack record is written to the database
-5. **Reconciliation** — If the DB shows an ack but the chunk is missing from the bucket (e.g. bucket purge, replication lag), the client re-uploads from OPFS to restore consistency
+5. **Transcription** — Server triggers speech-to-text on the uploaded chunk and stores the transcript in the database. This is async and decoupled from the upload path — a failed transcription never blocks or rolls back a successful upload
+6. **Reconciliation** — If the DB shows an ack but the chunk is missing from the bucket (e.g. bucket purge, replication lag), the client re-uploads from OPFS to restore consistency
 
 ## Tech Stack
 
 - **Next.js** — Frontend (App Router)
 - **Hono** — Backend API server
 - **Bun** — Runtime
-- **Drizzle ORM + PostgreSQL** — Database
+- **Prisma + PostgreSQL** — Database
 - **TailwindCSS + shadcn/ui** — UI
 - **Turborepo** — Monorepo build system
 
