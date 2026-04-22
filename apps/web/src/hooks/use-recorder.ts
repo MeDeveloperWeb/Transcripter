@@ -141,28 +141,7 @@ export function useRecorder(options: UseRecorderOptions = {}) {
         sampleCountRef.current += resampled.length
 
         if (sampleCountRef.current >= chunkThreshold) {
-          // flush synchronously from the collected buffers
-          const totalLen = samplesRef.current.reduce((n, b) => n + b.length, 0)
-          const merged = new Float32Array(totalLen)
-          let off = 0
-          for (const buf of samplesRef.current) {
-            merged.set(buf, off)
-            off += buf.length
-          }
-          samplesRef.current = []
-          sampleCountRef.current = 0
-
-          const blob = encodeWav(merged, SAMPLE_RATE)
-          const url = URL.createObjectURL(blob)
-          const chunk: WavChunk = {
-            id: crypto.randomUUID(),
-            blob,
-            url,
-            duration: merged.length / SAMPLE_RATE,
-            timestamp: Date.now(),
-          }
-          setChunks((prev) => [...prev, chunk])
-          onChunkRef.current?.(chunk)
+          flushChunk()
         }
       }
 
@@ -223,9 +202,11 @@ export function useRecorder(options: UseRecorderOptions = {}) {
   }, [])
 
   const clearChunks = useCallback(() => {
-    for (const c of chunks) URL.revokeObjectURL(c.url)
-    setChunks([])
-  }, [chunks])
+    setChunks((prev) => {
+      for (const c of prev) URL.revokeObjectURL(c.url)
+      return []
+    })
+  }, [])
 
   // cleanup on unmount
   useEffect(() => {

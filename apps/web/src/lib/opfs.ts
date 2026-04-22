@@ -18,8 +18,13 @@ export async function saveChunkToOPFS(
   const dir = await getRecordingDir(recordingId);
   const fileHandle = await dir.getFileHandle(`chunk-${sequence}.wav`, { create: true });
   const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
+  try {
+    await writable.write(blob);
+    await writable.close();
+  } catch (err) {
+    await writable.abort();
+    throw err;
+  }
 }
 
 export async function getChunkFromOPFS(

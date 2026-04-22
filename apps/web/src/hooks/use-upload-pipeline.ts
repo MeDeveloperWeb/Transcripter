@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  isOPFSSupported,
   saveChunkToOPFS,
   getChunkFromOPFS,
   deleteChunkFromOPFS,
@@ -72,7 +73,7 @@ export function useUploadPipeline() {
       } catch {
         if (sessionAbortRef.current?.signal.aborted) return
         if (retry < MAX_RETRIES) {
-          await wait(RETRY_DELAY_MS * (retry + 1))
+          await wait(RETRY_DELAY_MS * Math.pow(2, retry) + Math.random() * 1000)
           await attemptUpload(recId, sequence, blob, duration, retry + 1)
         } else {
           updateChunkStatus(sequence, { uploadStatus: "failed", retryCount: retry })
@@ -83,6 +84,11 @@ export function useUploadPipeline() {
   )
 
   const startSession = useCallback(async () => {
+    if (!isOPFSSupported()) {
+      setPipelineError("Browser does not support OPFS — recording upload unavailable")
+      throw new Error("OPFS not supported")
+    }
+
     sessionAbortRef.current?.abort()
     sessionAbortRef.current = new AbortController()
     pendingUploadsRef.current = []
