@@ -20,6 +20,8 @@ export function useStreamingAudio(recordingId: string) {
   const chunkListRef = useRef<ChunkMeta[]>([])
   const wavParamsRef = useRef({ sampleRate: 16000, bitsPerSample: 16, numChannels: 1 })
 
+  const pendingRestoreRef = useRef<{ time: number; playing: boolean } | null>(null)
+
   const rebuildAudio = useCallback(() => {
     const buffers = buffersRef.current
     if (buffers.size === 0) return
@@ -37,18 +39,14 @@ export function useStreamingAudio(recordingId: string) {
     const merged = buildWav(pcmChunks, sampleRate, bitsPerSample, numChannels)
 
     const el = audioRef.current
-    const currentTime = el ? el.currentTime : 0
+    if (el && el.currentTime > 0) {
+      pendingRestoreRef.current = { time: el.currentTime, playing: !el.paused }
+    }
 
     const newUrl = URL.createObjectURL(merged)
     if (urlRef.current) URL.revokeObjectURL(urlRef.current)
     urlRef.current = newUrl
     setAudioUrl(newUrl)
-
-    if (el && currentTime > 0) {
-      requestAnimationFrame(() => {
-        el.currentTime = currentTime
-      })
-    }
   }, [])
 
   const loadBatch = useCallback(async (startIdx: number, count: number): Promise<boolean> => {
@@ -147,8 +145,26 @@ export function useStreamingAudio(recordingId: string) {
     return () => clearInterval(interval)
   }, [loadBatch])
 
+  const handleLoadedRef = useRef(() => {
+    const el = audioRef.current
+    const restore = pendingRestoreRef.current
+    if (!el || !restore) return
+    pendingRestoreRef.current = null
+    el.currentTime = restore.time
+    if (restore.playing) {
+      el.play()
+    }
+  })
+
   const setAudioElement = useCallback((el: HTMLAudioElement | null) => {
+    const handler = handleLoadedRef.current
+    if (audioRef.current) {
+      audioRef.current.removeEventListener("loadeddata", handler)
+    }
     audioRef.current = el
+    if (el) {
+      el.addEventListener("loadeddata", handler)
+    }
   }, [])
 
   return {
