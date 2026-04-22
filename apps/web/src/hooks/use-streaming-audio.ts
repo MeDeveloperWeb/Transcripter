@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { fetchChunkList, downloadChunk, type ChunkMeta } from "@/lib/api"
 import { buildWav, parseWavHeader, WAV_HEADER_SIZE } from "@/lib/local-audio-store"
 
-const INITIAL_BATCH = 10
+const BUFFER_AHEAD = 10
 const LOAD_BATCH = 5
-const REFETCH_WHEN_REMAINING = 2
 const POLL_INTERVAL_MS = 500
 
 export function useStreamingAudio(recordingId: string) {
@@ -107,7 +106,7 @@ export function useStreamingAudio(recordingId: string) {
         setTotalCount(ackedList.length)
 
         if (ackedList.length > 0) {
-          await loadBatch(0, INITIAL_BATCH)
+          await loadBatch(0, BUFFER_AHEAD)
         }
       } finally {
         if (!cancelledRef.current) setLoading(false)
@@ -140,7 +139,7 @@ export function useStreamingAudio(recordingId: string) {
       const currentChunkIdx = Math.floor(el.currentTime / chunkDuration)
       const chunksAhead = loaded - currentChunkIdx
 
-      if (chunksAhead <= REFETCH_WHEN_REMAINING) {
+      if (chunksAhead < BUFFER_AHEAD) {
         loadBatch(loaded, LOAD_BATCH)
       }
     }, POLL_INTERVAL_MS)
