@@ -5,7 +5,7 @@ import { z } from "zod"
 export const env = createEnv({
   server: {
     DATABASE_URL: z.string().min(1),
-    CORS_ORIGIN: z.url(),
+    CORS_ORIGIN: z.string().optional(),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     S3_ENDPOINT: z.string().url(),
     S3_ACCESS_KEY_ID: z.string().min(1),
