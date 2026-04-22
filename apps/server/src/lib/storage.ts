@@ -33,7 +33,7 @@ export async function uploadToStorage(
   )
 }
 
-export async function downloadFromStorage(key: string): Promise<ArrayBuffer> {
+export async function downloadFromStorage(key: string): Promise<Uint8Array> {
   const response = await s3.send(
     new GetObjectCommand({
       Bucket: BUCKET,
@@ -43,8 +43,7 @@ export async function downloadFromStorage(key: string): Promise<ArrayBuffer> {
   if (!response.Body) {
     throw new Error(`Empty response body for key: ${key}`)
   }
-  const bytes = await response.Body.transformToByteArray()
-  return bytes.buffer as ArrayBuffer
+  return response.Body.transformToByteArray()
 }
 
 export async function existsInStorage(key: string): Promise<boolean> {
@@ -56,7 +55,10 @@ export async function existsInStorage(key: string): Promise<boolean> {
       }),
     )
     return true
-  } catch {
-    return false
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "NotFound") {
+      return false
+    }
+    throw err
   }
 }

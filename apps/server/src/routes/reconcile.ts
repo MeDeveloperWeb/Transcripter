@@ -1,14 +1,32 @@
 import { Hono } from "hono"
+import { z } from "zod"
 import { prisma } from "@my-better-t-app/db"
 import { existsInStorage } from "../lib/storage"
+import { isValidCuid } from "../lib/validation"
 
 const reconcile = new Hono()
+
+const bodySchema = z.object({
+  clientSequences: z.array(z.number().int().nonnegative()),
+})
 
 reconcile.post("/:recordingId", async (c) => {
   const { recordingId } = c.req.param()
 
-  const body = await c.req.json<{ clientSequences: number[] }>()
-  const clientSequences = new Set(body.clientSequences ?? [])
+  if (!isValidCuid(recordingId)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
+
+  const parsed = bodySchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request body" }, 400)
+  }
+  const clientSequences = new Set(parsed.data.clientSequences)
+
+  const recording = await prisma.recording.findUnique({ where: { id: recordingId } })
+  if (!recording) {
+    return c.json({ error: "Recording not found" }, 404)
+  }
 
   const serverChunks = await prisma.chunk.findMany({
     where: { recordingId },
@@ -26,12 +44,16 @@ reconcile.post("/:recordingId", async (c) => {
     }
   }
 
+  const ackedChunks = serverChunks.filter((ch) => ch.status === "acked" && ch.bucketPath)
+  const existenceChecks = await Promise.all(
+    ackedChunks.map(async (chunk) => ({
+      chunk,
+      exists: await existsInStorage(chunk.bucketPath!),
+    })),
+  )
+
   const bucketMissing: number[] = []
-  for (const chunk of serverChunks) {
-    if (chunk.status !== "acked" || !chunk.bucketPath) continue
-
-    const exists = await existsInStorage(chunk.bucketPath)
-
+  for (const { chunk, exists } of existenceChecks) {
     if (!exists) {
       bucketMissing.push(chunk.sequence)
       await prisma.chunk.update({

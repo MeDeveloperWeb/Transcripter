@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { prisma } from "@my-better-t-app/db"
+import { isValidCuid } from "../lib/validation"
 
 const recordings = new Hono()
 
@@ -12,6 +13,11 @@ recordings.post("/", async (c) => {
 
 recordings.get("/:id", async (c) => {
   const { id } = c.req.param()
+
+  if (!isValidCuid(id)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
+
   const recording = await prisma.recording.findUnique({
     where: { id },
     include: {
@@ -29,12 +35,21 @@ recordings.get("/:id", async (c) => {
 
 recordings.post("/:id/complete", async (c) => {
   const { id } = c.req.param()
+
+  if (!isValidCuid(id)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
+
   const recording = await prisma.recording.findUnique({
     where: { id },
     include: { chunks: true },
   })
   if (!recording) {
     return c.json({ error: "Recording not found" }, 404)
+  }
+
+  if (recording.status !== "recording") {
+    return c.json({ error: `Cannot complete recording with status: ${recording.status}` }, 409)
   }
 
   const totalDuration = recording.chunks.reduce((sum, ch) => sum + ch.duration, 0)

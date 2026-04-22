@@ -2,11 +2,21 @@ import { Hono } from "hono"
 import { prisma } from "@my-better-t-app/db"
 import { downloadFromStorage } from "../lib/storage"
 import { transcribeAudio } from "../lib/deepgram"
+import { isValidCuid } from "../lib/validation"
 
 const transcripts = new Hono()
 
 transcripts.post("/:recordingId/transcribe", async (c) => {
   const { recordingId } = c.req.param()
+
+  if (!isValidCuid(recordingId)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
+
+  const recording = await prisma.recording.findUnique({ where: { id: recordingId } })
+  if (!recording) {
+    return c.json({ error: "Recording not found" }, 404)
+  }
 
   const ackedChunks = await prisma.chunk.findMany({
     where: { recordingId, status: "acked" },
@@ -19,13 +29,13 @@ transcripts.post("/:recordingId/transcribe", async (c) => {
   }
 
   const toTranscribe = ackedChunks.filter(
-    (ch) => !ch.transcript || ch.transcript.status !== "completed",
+    (ch) => ch.bucketPath && (!ch.transcript || ch.transcript.status !== "completed"),
   )
 
   transcribeInBatches(
-    toTranscribe.map((ch) => ({ id: ch.id, bucketPath: ch.bucketPath! })),
+    toTranscribe.map((ch) => ({ id: ch.id, bucketPath: ch.bucketPath as string })),
   ).catch(() => {
-    // errors stored per-transcript record
+    // per-transcript errors are stored in the DB by processTranscription
   })
 
   return c.json({
@@ -37,6 +47,10 @@ transcripts.post("/:recordingId/transcribe", async (c) => {
 
 transcripts.get("/:recordingId", async (c) => {
   const { recordingId } = c.req.param()
+
+  if (!isValidCuid(recordingId)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
 
   const [chunkList, transcriptList] = await Promise.all([
     prisma.chunk.findMany({

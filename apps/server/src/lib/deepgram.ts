@@ -32,7 +32,7 @@ export interface DeepgramResult {
   }
 }
 
-export async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<DeepgramResult> {
+export async function transcribeAudio(audioBuffer: Uint8Array | ArrayBuffer): Promise<DeepgramResult> {
   const response = await fetch(
     "https://api.deepgram.com/v1/listen?model=nova-3&diarize=true&utterances=true&smart_format=true",
     {

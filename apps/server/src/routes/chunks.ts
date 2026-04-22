@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import { prisma } from "@my-better-t-app/db"
 import { uploadToStorage } from "../lib/storage"
+import { isValidCuid } from "../lib/validation"
 
 const chunks = new Hono()
 
@@ -9,6 +10,10 @@ chunks.use(bodyLimit({ maxSize: 10 * 1024 * 1024 }))
 
 chunks.post("/:recordingId", async (c) => {
   const { recordingId } = c.req.param()
+
+  if (!isValidCuid(recordingId)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
 
   const recording = await prisma.recording.findUnique({
     where: { id: recordingId },
@@ -47,7 +52,11 @@ chunks.post("/:recordingId", async (c) => {
       size: buffer.byteLength,
       status: "pending",
     },
-    update: {},
+    update: {
+      duration,
+      size: buffer.byteLength,
+      status: "pending",
+    },
   })
 
   try {
@@ -70,6 +79,11 @@ chunks.post("/:recordingId", async (c) => {
 
 chunks.get("/:recordingId", async (c) => {
   const { recordingId } = c.req.param()
+
+  if (!isValidCuid(recordingId)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
+
   const chunkList = await prisma.chunk.findMany({
     where: { recordingId },
     orderBy: { sequence: "asc" },
