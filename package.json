@@ -16,10 +16,6 @@
     "db:studio": "turbo -F @my-better-t-app/db db:studio",
     "db:generate": "turbo -F @my-better-t-app/db db:generate",
     "db:migrate": "turbo -F @my-better-t-app/db db:migrate",
-    "db:start": "turbo -F @my-better-t-app/db db:start",
-    "db:watch": "turbo -F @my-better-t-app/db db:watch",
-    "db:stop": "turbo -F @my-better-t-app/db db:stop",
-    "db:down": "turbo -F @my-better-t-app/db db:down",
     "check": "ultracite check",
     "fix": "ultracite fix"
   },
