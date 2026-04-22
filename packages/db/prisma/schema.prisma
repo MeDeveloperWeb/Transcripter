@@ -13,9 +13,9 @@ model Recording {
   status    String   @default("recording") // recording | completed | failed
   duration  Float    @default(0)
   createdAt DateTime @default(now())
-  updatedAt    DateTime     @updatedAt
-  chunks       Chunk[]
-  transcripts  Transcript[]
+  updatedAt   DateTime    @updatedAt
+  chunks      Chunk[]
+  transcript  Transcript?
 
   @@map("recordings")
 }
@@ -31,7 +31,6 @@ model Chunk {
   status      String      @default("pending") // pending | uploaded | acked | failed
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
-  transcript  Transcript?
 
   @@unique([recordingId, sequence])
   @@index([recordingId, status])
@@ -40,17 +39,14 @@ model Chunk {
 
 model Transcript {
   id          String    @id @default(cuid())
-  chunkId     String    @unique
-  chunk       Chunk     @relation(fields: [chunkId], references: [id], onDelete: Cascade)
-  recordingId String
+  recordingId String    @unique
   recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
   text        String    @default("")
-  utterances  Json      @default("[]") // [{ speaker: number, text: string, start: number, end: number }]
+  utterances  Json      @default("[]")
   status      String    @default("pending") // pending | processing | completed | failed
   error       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@index([recordingId])
   @@map("transcripts")
 }
