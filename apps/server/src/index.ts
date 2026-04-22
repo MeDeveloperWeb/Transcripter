@@ -1,3 +1,4 @@
+import { serve } from "@hono/node-server"
 import { env } from "@my-better-t-app/env/server"
 import { Hono } from "hono"
 import { cors } from "hono/cors"
@@ -27,6 +28,10 @@ app.route("/api/transcripts", transcripts)
 
 app.onError((_err, c) => {
   return c.json({ error: "Internal server error" }, 500)
+})
+
+serve({ fetch: app.fetch, port: 3000 }, (info) => {
+  console.log(`Server running on http://localhost:${info.port}`)
 })
 
 export default app

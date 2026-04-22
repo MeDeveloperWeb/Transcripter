@@ -71,6 +71,7 @@ export function useRecorder(options: UseRecorderOptions = {}) {
 
   const [status, setStatus] = useState<RecorderStatus>("idle")
   const [chunks, setChunks] = useState<WavChunk[]>([])
+  const chunksRef = useRef<WavChunk[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [stream, setStream] = useState<MediaStream | null>(null)
 
@@ -111,7 +112,11 @@ export function useRecorder(options: UseRecorderOptions = {}) {
       duration: merged.length / SAMPLE_RATE,
       timestamp: Date.now(),
     }
-    setChunks((prev) => [...prev, chunk])
+    setChunks((prev) => {
+      const next = [...prev, chunk]
+      chunksRef.current = next
+      return next
+    })
     onChunkRef.current?.(chunk)
   }, [])
 
@@ -204,6 +209,7 @@ export function useRecorder(options: UseRecorderOptions = {}) {
   const clearChunks = useCallback(() => {
     setChunks((prev) => {
       for (const c of prev) URL.revokeObjectURL(c.url)
+      chunksRef.current = []
       return []
     })
   }, [])
@@ -220,5 +226,5 @@ export function useRecorder(options: UseRecorderOptions = {}) {
     }
   }, [])
 
-  return { status, start, stop, pause, resume, chunks, elapsed, stream, clearChunks }
+  return { status, start, stop, pause, resume, chunks, chunksRef, elapsed, stream, clearChunks }
 }

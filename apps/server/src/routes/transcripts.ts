@@ -20,7 +20,6 @@ transcripts.post("/:recordingId/transcribe", async (c) => {
 
   const ackedChunks = await prisma.chunk.findMany({
     where: { recordingId, status: "acked" },
-    include: { transcript: true },
     orderBy: { sequence: "asc" },
   })
 
@@ -28,20 +27,18 @@ transcripts.post("/:recordingId/transcribe", async (c) => {
     return c.json({ error: "No acked chunks to transcribe" }, 400)
   }
 
-  const toTranscribe = ackedChunks.filter(
-    (ch) => ch.bucketPath && (!ch.transcript || ch.transcript.status !== "completed"),
-  )
+  const chunksWithPaths = ackedChunks.filter((ch) => ch.bucketPath)
+  if (chunksWithPaths.length === 0) {
+    return c.json({ error: "No chunks with storage paths" }, 400)
+  }
 
-  transcribeInBatches(
-    toTranscribe.map((ch) => ({ id: ch.id, bucketPath: ch.bucketPath as string })),
-  ).catch(() => {
-    // per-transcript errors are stored in the DB by processTranscription
+  processRecordingTranscription(recordingId, chunksWithPaths).catch(() => {
+    // errors stored in transcript records
   })
 
   return c.json({
     message: "Transcription started",
-    processing: toTranscribe.length,
-    alreadyDone: ackedChunks.length - toTranscribe.length,
+    totalChunks: chunksWithPaths.length,
   })
 })
 
@@ -52,67 +49,57 @@ transcripts.get("/:recordingId", async (c) => {
     return c.json({ error: "Invalid recording ID" }, 400)
   }
 
-  const [chunkList, transcriptList] = await Promise.all([
-    prisma.chunk.findMany({
-      where: { recordingId },
-      orderBy: { sequence: "asc" },
-      select: { id: true, sequence: true, duration: true },
-    }),
-    prisma.transcript.findMany({
-      where: { recordingId },
-      select: {
-        chunkId: true,
-        text: true,
-        utterances: true,
-        status: true,
-        error: true,
-      },
-    }),
-  ])
-
-  const transcriptMap = new Map(transcriptList.map((t) => [t.chunkId, t]))
-
-  const result = chunkList.map((ch) => {
-    const t = transcriptMap.get(ch.id)
-    return {
-      sequence: ch.sequence,
-      chunkId: ch.id,
-      duration: ch.duration,
-      transcript: t
-        ? { text: t.text, utterances: t.utterances, status: t.status, error: t.error }
-        : null,
-    }
+  const transcriptList = await prisma.transcript.findMany({
+    where: { recordingId },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: {
+      id: true,
+      text: true,
+      utterances: true,
+      status: true,
+      error: true,
+    },
   })
 
-  return c.json({ recordingId, chunks: result })
+  const transcript = transcriptList[0] ?? null
+
+  return c.json({ recordingId, transcript })
 })
 
-const TRANSCRIPTION_CONCURRENCY = 5
-
-async function transcribeInBatches(chunks: Array<{ id: string; bucketPath: string }>) {
-  for (let i = 0; i < chunks.length; i += TRANSCRIPTION_CONCURRENCY) {
-    const batch = chunks.slice(i, i + TRANSCRIPTION_CONCURRENCY)
-    await Promise.allSettled(
-      batch.map((ch) => processTranscription(ch.id, ch.bucketPath)),
-    )
-  }
-}
-
-async function processTranscription(chunkId: string, bucketPath: string) {
-  const chunk = await prisma.chunk.findUnique({ where: { id: chunkId } })
-  if (!chunk) return
+async function processRecordingTranscription(
+  recordingId: string,
+  chunks: Array<{ id: string; bucketPath: string | null }>,
+) {
+  const firstChunk = chunks[0]
+  if (!firstChunk) return
+  const firstChunkId = firstChunk.id
 
   await prisma.transcript.upsert({
-    where: { chunkId },
-    create: { chunkId, recordingId: chunk.recordingId, status: "processing" },
+    where: { chunkId: firstChunkId },
+    create: { chunkId: firstChunkId, recordingId, status: "processing" },
     update: { status: "processing", error: null },
   })
 
   try {
-    const buffer = await downloadFromStorage(bucketPath)
-    const result = await transcribeAudio(buffer)
+    const audioBuffers: Uint8Array[] = []
+    for (const chunk of chunks) {
+      if (!chunk.bucketPath) continue
+      const data = await downloadFromStorage(chunk.bucketPath)
+      audioBuffers.push(data)
+    }
 
-    const transcript = result.results?.channels[0]?.alternatives[0]?.transcript ?? ""
+    const totalSize = audioBuffers.reduce((sum, buf) => sum + buf.length, 0)
+    const merged = new Uint8Array(totalSize)
+    let offset = 0
+    for (const buf of audioBuffers) {
+      merged.set(buf, offset)
+      offset += buf.length
+    }
+
+    const result = await transcribeAudio(merged)
+
+    const fullText = result.results?.channels[0]?.alternatives[0]?.transcript ?? ""
     const utterances = (result.results?.utterances ?? []).map((u) => ({
       speaker: u.speaker,
       text: u.transcript,
@@ -122,9 +109,9 @@ async function processTranscription(chunkId: string, bucketPath: string) {
     }))
 
     await prisma.transcript.update({
-      where: { chunkId },
+      where: { chunkId: firstChunkId },
       data: {
-        text: transcript,
+        text: fullText,
         utterances,
         status: "completed",
       },
@@ -132,7 +119,7 @@ async function processTranscription(chunkId: string, bucketPath: string) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown transcription error"
     await prisma.transcript.update({
-      where: { chunkId },
+      where: { chunkId: firstChunkId },
       data: { status: "failed", error: message },
     })
   }

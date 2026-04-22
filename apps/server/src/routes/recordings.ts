@@ -11,6 +11,21 @@ recordings.post("/", async (c) => {
   return c.json({ id: recording.id }, 201)
 })
 
+recordings.get("/", async (c) => {
+  const list = await prisma.recording.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      duration: true,
+      createdAt: true,
+      _count: { select: { chunks: true } },
+    },
+    take: 50,
+  })
+  return c.json(list)
+})
+
 recordings.get("/:id", async (c) => {
   const { id } = c.req.param()
 

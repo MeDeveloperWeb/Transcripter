@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import { prisma } from "@my-better-t-app/db"
-import { uploadToStorage } from "../lib/storage"
+import { uploadToStorage, downloadFromStorage } from "../lib/storage"
 import { isValidCuid } from "../lib/validation"
 
 const chunks = new Hono()
@@ -101,6 +101,37 @@ chunks.get("/:recordingId", async (c) => {
     },
   })
   return c.json(chunkList)
+})
+
+chunks.get("/:recordingId/audio", async (c) => {
+  const { recordingId } = c.req.param()
+
+  if (!isValidCuid(recordingId)) {
+    return c.json({ error: "Invalid recording ID" }, 400)
+  }
+
+  const chunkList = await prisma.chunk.findMany({
+    where: { recordingId, status: "acked" },
+    orderBy: { sequence: "asc" },
+  })
+
+  if (chunkList.length === 0) {
+    return c.json({ error: "No audio chunks found" }, 404)
+  }
+
+  const audioBuffers: Uint8Array[] = []
+  for (const chunk of chunkList) {
+    if (!chunk.bucketPath) continue
+    const data = await downloadFromStorage(chunk.bucketPath)
+    audioBuffers.push(data)
+  }
+
+  return c.json(
+    audioBuffers.map((buf, i) => ({
+      sequence: chunkList[i]?.sequence ?? i,
+      base64: Buffer.from(buf).toString("base64"),
+    })),
+  )
 })
 
 export { chunks }

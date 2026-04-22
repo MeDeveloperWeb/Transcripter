@@ -64,27 +64,49 @@ export async function triggerTranscription(recordingId: string): Promise<void> {
   }
 }
 
-interface TranscriptChunk {
-  sequence: number;
-  chunkId: string;
+export interface RecordingSummary {
+  id: string;
+  status: string;
   duration: number;
-  transcript: {
+  createdAt: string;
+  _count: { chunks: number };
+}
+
+export async function listRecordings(): Promise<RecordingSummary[]> {
+  const res = await fetch(`${BASE}/api/recordings`);
+  if (!res.ok) {
+    throw new Error(`Failed to list recordings: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchCloudChunks(
+  recordingId: string,
+): Promise<Array<{ sequence: number; base64: string }>> {
+  const res = await fetch(`${BASE}/api/chunks/${recordingId}/audio`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch audio chunks: ${res.status}`);
+  }
+  return res.json();
+}
+
+export interface TranscriptData {
+  id: string;
+  text: string;
+  utterances: Array<{
+    speaker: number;
     text: string;
-    utterances: Array<{
-      speaker: number;
-      text: string;
-      start: number;
-      end: number;
-      confidence: number;
-    }>;
-    status: string;
-    error: string | null;
-  } | null;
+    start: number;
+    end: number;
+    confidence: number;
+  }>;
+  status: string;
+  error: string | null;
 }
 
 export async function getTranscripts(
   recordingId: string,
-): Promise<{ recordingId: string; chunks: TranscriptChunk[] }> {
+): Promise<{ recordingId: string; transcript: TranscriptData | null }> {
   const res = await fetch(`${BASE}/api/transcripts/${recordingId}`);
   if (!res.ok) {
     throw new Error(`Failed to get transcripts: ${res.status}`);
