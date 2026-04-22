@@ -33,7 +33,7 @@ transcripts.post("/:recordingId/transcribe", async (c) => {
   }
 
   processRecordingTranscription(recordingId, chunksWithPaths).catch(() => {
-    // errors stored in transcript records
+    // errors stored in transcript record
   })
 
   return c.json({
@@ -49,10 +49,8 @@ transcripts.get("/:recordingId", async (c) => {
     return c.json({ error: "Invalid recording ID" }, 400)
   }
 
-  const transcriptList = await prisma.transcript.findMany({
+  const transcript = await prisma.transcript.findUnique({
     where: { recordingId },
-    orderBy: { createdAt: "desc" },
-    take: 1,
     select: {
       id: true,
       text: true,
@@ -62,8 +60,6 @@ transcripts.get("/:recordingId", async (c) => {
     },
   })
 
-  const transcript = transcriptList[0] ?? null
-
   return c.json({ recordingId, transcript })
 })
 
@@ -71,30 +67,59 @@ async function processRecordingTranscription(
   recordingId: string,
   chunks: Array<{ id: string; bucketPath: string | null }>,
 ) {
-  const firstChunk = chunks[0]
-  if (!firstChunk) return
-  const firstChunkId = firstChunk.id
-
   await prisma.transcript.upsert({
-    where: { chunkId: firstChunkId },
-    create: { chunkId: firstChunkId, recordingId, status: "processing" },
+    where: { recordingId },
+    create: { recordingId, status: "processing" },
     update: { status: "processing", error: null },
   })
 
   try {
-    const audioBuffers: Uint8Array[] = []
-    for (const chunk of chunks) {
-      if (!chunk.bucketPath) continue
+    const WAV_HEADER_SIZE = 44
+    const pcmBuffers: Uint8Array[] = []
+    let sampleRate = 16000
+    let bitsPerSample = 16
+    let numChannels = 1
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      if (!chunk?.bucketPath) continue
       const data = await downloadFromStorage(chunk.bucketPath)
-      audioBuffers.push(data)
+      if (data.byteLength <= WAV_HEADER_SIZE) continue
+      if (i === 0) {
+        const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+        numChannels = view.getUint16(22, true)
+        sampleRate = view.getUint32(24, true)
+        bitsPerSample = view.getUint16(34, true)
+      }
+      pcmBuffers.push(data.slice(WAV_HEADER_SIZE))
     }
 
-    const totalSize = audioBuffers.reduce((sum, buf) => sum + buf.length, 0)
-    const merged = new Uint8Array(totalSize)
-    let offset = 0
-    for (const buf of audioBuffers) {
-      merged.set(buf, offset)
-      offset += buf.length
+    const totalPcmSize = pcmBuffers.reduce((sum, buf) => sum + buf.byteLength, 0)
+    const header = new Uint8Array(WAV_HEADER_SIZE)
+    const hView = new DataView(header.buffer)
+    const writeStr = (offset: number, str: string) => {
+      for (let j = 0; j < str.length; j++) header[offset + j] = str.charCodeAt(j)
+    }
+    writeStr(0, "RIFF")
+    hView.setUint32(4, 36 + totalPcmSize, true)
+    writeStr(8, "WAVE")
+    writeStr(12, "fmt ")
+    hView.setUint32(16, 16, true)
+    hView.setUint16(20, 1, true)
+    hView.setUint16(22, numChannels, true)
+    hView.setUint32(24, sampleRate, true)
+    hView.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true)
+    hView.setUint16(32, numChannels * (bitsPerSample / 8), true)
+    hView.setUint16(34, bitsPerSample, true)
+    writeStr(36, "data")
+    hView.setUint32(40, totalPcmSize, true)
+
+    const merged = new Uint8Array(WAV_HEADER_SIZE + totalPcmSize)
+    merged.set(header, 0)
+    let offset = WAV_HEADER_SIZE
+    for (const pcm of pcmBuffers) {
+      merged.set(pcm, offset)
+      offset += pcm.byteLength
     }
 
     const result = await transcribeAudio(merged)
@@ -109,17 +134,13 @@ async function processRecordingTranscription(
     }))
 
     await prisma.transcript.update({
-      where: { chunkId: firstChunkId },
-      data: {
-        text: fullText,
-        utterances,
-        status: "completed",
-      },
+      where: { recordingId },
+      data: { text: fullText, utterances, status: "completed" },
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown transcription error"
     await prisma.transcript.update({
-      where: { chunkId: firstChunkId },
+      where: { recordingId },
       data: { status: "failed", error: message },
     })
   }
