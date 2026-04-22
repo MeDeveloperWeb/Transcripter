@@ -30,8 +30,10 @@ app.onError((_err, c) => {
   return c.json({ error: "Internal server error" }, 500)
 })
 
-serve({ fetch: app.fetch, port: 3000 }, (info) => {
-  console.log(`Server running on http://localhost:${info.port}`)
-})
+if (process.env.VERCEL !== "1") {
+  serve({ fetch: app.fetch, port: 3000 }, (info) => {
+    console.log(`Server running on http://localhost:${info.port}`)
+  })
+}
 
 export default app

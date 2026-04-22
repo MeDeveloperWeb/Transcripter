@@ -149,10 +149,16 @@ export default function RecordingPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {cloud.loading && cloud.loadedCount === 0 && (
+          {!cloud.audioUrl && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Fetching chunks...
+              {cloud.totalCount > 0 || cloud.loading ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading chunks...
+                </>
+              ) : (
+                <p>No audio chunks found in cloud storage</p>
+              )}
             </div>
           )}
           {cloud.audioUrl && (
@@ -163,9 +169,6 @@ export default function RecordingPage() {
               className="w-full"
               preload="auto"
             />
-          )}
-          {!cloud.loading && !cloud.audioUrl && (
-            <p className="text-sm text-muted-foreground">No audio chunks found in cloud storage</p>
           )}
         </CardContent>
       </Card>
