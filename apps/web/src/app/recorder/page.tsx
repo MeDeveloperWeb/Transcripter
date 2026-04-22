@@ -269,10 +269,14 @@ export default function RecorderPage() {
       await pipeline.endSession()
       setRecordingDone(true)
     } else {
-      await pipeline.startSession()
-      setSessionStarted(true)
-      setRecordingDone(false)
-      start()
+      try {
+        await pipeline.startSession()
+        setSessionStarted(true)
+        setRecordingDone(false)
+        await start()
+      } catch {
+        setSessionStarted(false)
+      }
     }
   }, [isActive, stop, start, pipeline.endSession, pipeline.startSession])
 

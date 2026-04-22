@@ -57,26 +57,28 @@ export function useUploadPipeline() {
   )
 
   const attemptUpload = useCallback(
-    async (recId: string, sequence: number, blob: Blob, duration: number, retry = 0) => {
-      if (sessionAbortRef.current?.signal.aborted) return
-
-      updateChunkStatus(sequence, { uploadStatus: "uploading", retryCount: retry })
-
-      const uploadBlob =
-        retry > 0 ? ((await getChunkFromOPFS(recId, sequence)) ?? blob) : blob
-
-      try {
-        await uploadChunk(recId, sequence, uploadBlob, duration)
+    async (recId: string, sequence: number, blob: Blob, duration: number) => {
+      for (let retry = 0; retry <= MAX_RETRIES; retry++) {
         if (sessionAbortRef.current?.signal.aborted) return
-        updateChunkStatus(sequence, { uploadStatus: "acked" })
-        await deleteChunkFromOPFS(recId, sequence)
-      } catch {
-        if (sessionAbortRef.current?.signal.aborted) return
-        if (retry < MAX_RETRIES) {
-          await wait(RETRY_DELAY_MS * Math.pow(2, retry) + Math.random() * 1000)
-          await attemptUpload(recId, sequence, blob, duration, retry + 1)
-        } else {
-          updateChunkStatus(sequence, { uploadStatus: "failed", retryCount: retry })
+
+        updateChunkStatus(sequence, { uploadStatus: "uploading", retryCount: retry })
+
+        const uploadBlob =
+          retry > 0 ? ((await getChunkFromOPFS(recId, sequence)) ?? blob) : blob
+
+        try {
+          await uploadChunk(recId, sequence, uploadBlob, duration)
+          if (sessionAbortRef.current?.signal.aborted) return
+          updateChunkStatus(sequence, { uploadStatus: "acked" })
+          await deleteChunkFromOPFS(recId, sequence)
+          return
+        } catch {
+          if (sessionAbortRef.current?.signal.aborted) return
+          if (retry < MAX_RETRIES) {
+            await wait(RETRY_DELAY_MS * Math.pow(2, retry) + Math.random() * 1000)
+          } else {
+            updateChunkStatus(sequence, { uploadStatus: "failed", retryCount: retry })
+          }
         }
       }
     },
