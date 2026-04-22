@@ -85,6 +85,7 @@ function ChunkRow({ chunk, tracked, index }: { chunk: WavChunk; tracked?: Tracke
         ref={audioRef}
         src={chunk.url}
         onEnded={() => setPlaying(false)}
+        onError={() => setPlaying(false)}
         preload="none"
       />
       <span className="text-xs font-medium text-muted-foreground tabular-nums">
@@ -144,20 +145,26 @@ function TranscriptView({ recordingId }: { recordingId: string }) {
         if (attempts > 30 || controller.signal.aborted) return
         await new Promise((r) => setTimeout(r, 2000))
         if (controller.signal.aborted) return
-        const data = await getTranscripts(recordingId)
-        if (controller.signal.aborted) return
-        const allDone = data.chunks.every(
-          (ch) => ch.transcript?.status === "completed" || ch.transcript?.status === "failed",
-        )
-        const allUtterances = data.chunks
-          .flatMap((ch) =>
-            ch.transcript?.status === "completed"
-              ? (ch.transcript.utterances as Utterance[])
-              : [],
+        try {
+          const data = await getTranscripts(recordingId)
+          if (controller.signal.aborted) return
+          const allDone = data.chunks.every(
+            (ch) => ch.transcript?.status === "completed" || ch.transcript?.status === "failed",
           )
-        setUtterances(allUtterances)
-        if (!allDone) {
-          return poll(attempts + 1)
+          const allUtterances = data.chunks
+            .flatMap((ch) =>
+              ch.transcript?.status === "completed"
+                ? (ch.transcript.utterances as Utterance[])
+                : [],
+            )
+          setUtterances(allUtterances)
+          if (!allDone) {
+            return poll(attempts + 1)
+          }
+        } catch {
+          if (!controller.signal.aborted) {
+            return poll(attempts + 1)
+          }
         }
       }
       await poll()
@@ -237,7 +244,7 @@ function TranscriptView({ recordingId }: { recordingId: string }) {
 }
 
 export default function RecorderPage() {
-  const [deviceId] = useState<string | undefined>()
+  const deviceId = undefined
   const pipeline = useUploadPipeline()
   const [sessionStarted, setSessionStarted] = useState(false)
   const [recordingDone, setRecordingDone] = useState(false)
@@ -267,14 +274,14 @@ export default function RecorderPage() {
       setRecordingDone(false)
       start()
     }
-  }, [isActive, stop, start, pipeline])
+  }, [isActive, stop, start, pipeline.endSession, pipeline.startSession])
 
   const handleClear = useCallback(() => {
     clearChunks()
     pipeline.cleanup()
     setSessionStarted(false)
     setRecordingDone(false)
-  }, [clearChunks, pipeline])
+  }, [clearChunks, pipeline.cleanup])
 
   const ackedCount = pipeline.trackedChunks.filter((t) => t.uploadStatus === "acked").length
   const failedCount = pipeline.trackedChunks.filter((t) => t.uploadStatus === "failed").length
@@ -393,7 +400,7 @@ export default function RecorderPage() {
               <ChunkRow
                 key={chunk.id}
                 chunk={chunk}
-                tracked={pipeline.trackedChunks[i]}
+                tracked={pipeline.trackedChunks.find((t) => t.id === chunk.id)}
                 index={i}
               />
             ))}
