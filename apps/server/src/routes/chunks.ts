@@ -6,9 +6,9 @@ import { isValidCuid } from "../lib/validation"
 
 const chunks = new Hono()
 
-chunks.use(bodyLimit({ maxSize: 10 * 1024 * 1024 }))
+const UPLOAD_LIMIT = 100 * 1024 * 1024
 
-chunks.post("/:recordingId", async (c) => {
+chunks.post("/:recordingId", bodyLimit({ maxSize: UPLOAD_LIMIT }), async (c) => {
   const { recordingId } = c.req.param()
 
   if (!isValidCuid(recordingId)) {
@@ -42,7 +42,9 @@ chunks.post("/:recordingId", async (c) => {
     return c.json({ error: "sequence and duration must be numbers" }, 400)
   }
 
-  const bucketPath = `${recordingId}/chunk-${String(sequence).padStart(5, "0")}.wav`
+  const ext = file.name.split(".").pop() ?? "wav"
+  const bucketPath = `${recordingId}/chunk-${String(sequence).padStart(5, "0")}.${ext}`
+  const contentType = file.type || "audio/wav"
   const buffer = await file.arrayBuffer()
 
   const chunk = await prisma.chunk.upsert({
@@ -64,7 +66,7 @@ chunks.post("/:recordingId", async (c) => {
   })
 
   try {
-    await uploadToStorage(bucketPath, buffer, "audio/wav")
+    await uploadToStorage(bucketPath, buffer, contentType)
   } catch {
     await prisma.chunk.update({
       where: { id: chunk.id },

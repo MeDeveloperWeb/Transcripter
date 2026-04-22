@@ -17,7 +17,8 @@ export async function uploadChunk(
   duration: number,
 ): Promise<{ chunkId: string; status: string }> {
   const formData = new FormData();
-  formData.append("audio", blob, `chunk-${sequence}.wav`);
+  const fileName = blob instanceof File ? blob.name : `chunk-${sequence}.wav`;
+  formData.append("audio", blob, fileName);
   formData.append("sequence", String(sequence));
   formData.append("duration", String(duration));
 

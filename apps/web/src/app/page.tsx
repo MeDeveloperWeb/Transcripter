@@ -92,8 +92,8 @@ export default function HomePage() {
       await completeRecording(id)
       await storeLocalAudio(id, [file])
       router.push(`/recordings/${id}`)
-    } catch {
-      // upload failed
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Upload failed")
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ""
