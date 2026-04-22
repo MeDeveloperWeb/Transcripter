@@ -1,10 +1,23 @@
-import { handle } from "hono/vercel"
-import app from "../src/index"
+let handler: ReturnType<typeof import("hono/vercel").handle> | null = null
+let initError: string | null = null
 
-const handler = handle(app)
+try {
+  const { handle } = await import("hono/vercel")
+  const { default: app } = await import("../src/index")
+  handler = handle(app)
+} catch (e) {
+  initError = e instanceof Error ? e.message + "\n" + e.stack : String(e)
+  console.error("INIT ERROR:", initError)
+}
 
-export const GET = handler
-export const POST = handler
-export const PUT = handler
-export const DELETE = handler
-export const OPTIONS = handler
+const fallback = (req: Request) =>
+  new Response(JSON.stringify({ error: initError }), {
+    status: 500,
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+  })
+
+export const GET = handler ?? fallback
+export const POST = handler ?? fallback
+export const PUT = handler ?? fallback
+export const DELETE = handler ?? fallback
+export const OPTIONS = handler ?? fallback

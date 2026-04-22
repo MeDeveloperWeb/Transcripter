@@ -27,8 +27,9 @@ app.route("/api/chunks", chunks)
 app.route("/api/reconcile", reconcile)
 app.route("/api/transcripts", transcripts)
 
-app.onError((_err, c) => {
-  return c.json({ error: "Internal server error" }, 500)
+app.onError((err, c) => {
+  console.error("Unhandled error:", err.message, err.stack)
+  return c.json({ error: err.message }, 500)
 })
 
 if (process.env.VERCEL !== "1") {
