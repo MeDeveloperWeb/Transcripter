@@ -90,8 +90,10 @@ export default function HomePage() {
     try {
       const chunks = await chunkifyAudioFile(file)
       const { id } = await createRecording()
-      for (const chunk of chunks) {
-        await uploadChunk(id, chunk.sequence, chunk.blob, chunk.duration)
+      const BATCH_SIZE = 5
+      for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+        const batch = chunks.slice(i, i + BATCH_SIZE)
+        await Promise.all(batch.map((c) => uploadChunk(id, c.sequence, c.blob, c.duration)))
       }
       await completeRecording(id)
       await storeLocalAudio(id, chunks.map((c) => c.blob))
