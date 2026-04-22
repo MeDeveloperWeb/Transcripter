@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { fetchChunkList, downloadChunk, type ChunkMeta } from "@/lib/api"
 import { buildWav, parseWavHeader, WAV_HEADER_SIZE } from "@/lib/local-audio-store"
 
-const BUFFER_AHEAD = 10
-const REFETCH_THRESHOLD = 2
+const INITIAL_BATCH = 10
+const BACKGROUND_BATCH = 5
 
 export function useStreamingAudio(recordingId: string) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -13,15 +13,11 @@ export function useStreamingAudio(recordingId: string) {
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const urlRef = useRef<string | null>(null)
-  const chunkListRef = useRef<ChunkMeta[]>([])
-  const loadedBuffersRef = useRef<Map<number, ArrayBuffer>>(new Map())
-  const loadingRef = useRef(false)
   const cancelledRef = useRef(false)
 
   const wavParamsRef = useRef({ sampleRate: 16000, bitsPerSample: 16, numChannels: 1 })
 
-  const rebuildAudio = useCallback(() => {
-    const buffers = loadedBuffersRef.current
+  const rebuildAudio = useCallback((buffers: Map<number, ArrayBuffer>) => {
     if (buffers.size === 0) return
 
     const sortedKeys = [...buffers.keys()].sort((a, b) => a - b)
@@ -51,65 +47,43 @@ export function useStreamingAudio(recordingId: string) {
     }
   }, [])
 
-  const loadChunks = useCallback(async (startIdx: number, count: number) => {
-    if (loadingRef.current || cancelledRef.current) return
-    loadingRef.current = true
-
-    const chunks = chunkListRef.current
-    const end = Math.min(startIdx + count, chunks.length)
-    let newLoaded = false
-
-    for (let i = startIdx; i < end; i++) {
-      if (cancelledRef.current) break
-      const meta = chunks[i]
-      if (!meta || loadedBuffersRef.current.has(meta.sequence)) continue
-      if (meta.status !== "acked") continue
-
-      try {
-        const buf = await downloadChunk(recordingId, meta.sequence)
-        if (cancelledRef.current) break
-
-        if (loadedBuffersRef.current.size === 0) {
-          wavParamsRef.current = parseWavHeader(buf)
-        }
-
-        loadedBuffersRef.current.set(meta.sequence, buf)
-        newLoaded = true
-        setLoadedCount(loadedBuffersRef.current.size)
-      } catch {
-        // skip failed chunk, will retry on next load cycle
-      }
-    }
-
-    if (newLoaded && !cancelledRef.current) {
-      rebuildAudio()
-    }
-
-    loadingRef.current = false
-  }, [recordingId, rebuildAudio])
-
-  const checkAndLoadMore = useCallback(() => {
-    const el = audioRef.current
-    if (!el || loadingRef.current) return
-
-    const chunks = chunkListRef.current
-    if (chunks.length === 0) return
-
-    const chunkDuration = chunks[0]?.duration ?? 5
-    const currentChunkIdx = Math.floor(el.currentTime / chunkDuration)
-    const loadedCount = loadedBuffersRef.current.size
-    const chunksAheadOfPlayback = loadedCount - currentChunkIdx
-
-    if (chunksAheadOfPlayback <= REFETCH_THRESHOLD && loadedCount < chunks.length) {
-      loadChunks(loadedCount, BUFFER_AHEAD)
-    }
-  }, [loadChunks])
-
   useEffect(() => {
     cancelledRef.current = false
-    loadedBuffersRef.current = new Map()
+    const buffers = new Map<number, ArrayBuffer>()
     setLoading(true)
     setLoadedCount(0)
+    setAudioUrl(null)
+
+    const loadBatch = async (chunks: ChunkMeta[], startIdx: number, count: number) => {
+      const end = Math.min(startIdx + count, chunks.length)
+      let newLoaded = false
+
+      for (let i = startIdx; i < end; i++) {
+        if (cancelledRef.current) return false
+        const meta = chunks[i]
+        if (!meta || buffers.has(meta.sequence) || meta.status !== "acked") continue
+
+        try {
+          const buf = await downloadChunk(recordingId, meta.sequence)
+          if (cancelledRef.current) return false
+
+          if (buffers.size === 0) {
+            wavParamsRef.current = parseWavHeader(buf)
+          }
+
+          buffers.set(meta.sequence, buf)
+          newLoaded = true
+          setLoadedCount(buffers.size)
+        } catch {
+          // skip, continue with next chunk
+        }
+      }
+
+      if (newLoaded && !cancelledRef.current) {
+        rebuildAudio(buffers)
+      }
+      return true
+    }
 
     const init = async () => {
       try {
@@ -117,11 +91,20 @@ export function useStreamingAudio(recordingId: string) {
         if (cancelledRef.current) return
 
         const ackedList = list.filter((c) => c.status === "acked")
-        chunkListRef.current = ackedList
         setTotalCount(ackedList.length)
 
-        if (ackedList.length > 0) {
-          await loadChunks(0, BUFFER_AHEAD)
+        if (ackedList.length === 0) return
+
+        const ok = await loadBatch(ackedList, 0, INITIAL_BATCH)
+        if (!ok || cancelledRef.current) return
+
+        setLoading(false)
+
+        let idx = INITIAL_BATCH
+        while (idx < ackedList.length && !cancelledRef.current) {
+          const ok = await loadBatch(ackedList, idx, BACKGROUND_BATCH)
+          if (!ok) break
+          idx += BACKGROUND_BATCH
         }
       } finally {
         if (!cancelledRef.current) setLoading(false)
@@ -137,12 +120,7 @@ export function useStreamingAudio(recordingId: string) {
         urlRef.current = null
       }
     }
-  }, [recordingId, loadChunks])
-
-  useEffect(() => {
-    const interval = setInterval(checkAndLoadMore, 1000)
-    return () => clearInterval(interval)
-  }, [checkAndLoadMore])
+  }, [recordingId, rebuildAudio])
 
   const setAudioElement = useCallback((el: HTMLAudioElement | null) => {
     audioRef.current = el
