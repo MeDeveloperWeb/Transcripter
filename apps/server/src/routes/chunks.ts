@@ -103,35 +103,35 @@ chunks.get("/:recordingId", async (c) => {
   return c.json(chunkList)
 })
 
-chunks.get("/:recordingId/audio", async (c) => {
-  const { recordingId } = c.req.param()
+chunks.get("/:recordingId/:sequence/download", async (c) => {
+  const { recordingId, sequence: seqStr } = c.req.param()
 
   if (!isValidCuid(recordingId)) {
     return c.json({ error: "Invalid recording ID" }, 400)
   }
 
-  const chunkList = await prisma.chunk.findMany({
-    where: { recordingId, status: "acked" },
-    orderBy: { sequence: "asc" },
+  const sequence = Number(seqStr)
+  if (Number.isNaN(sequence)) {
+    return c.json({ error: "Invalid sequence number" }, 400)
+  }
+
+  const chunk = await prisma.chunk.findUnique({
+    where: { recordingId_sequence: { recordingId, sequence } },
   })
 
-  if (chunkList.length === 0) {
-    return c.json({ error: "No audio chunks found" }, 404)
+  if (!chunk || !chunk.bucketPath || chunk.status !== "acked") {
+    return c.json({ error: "Chunk not found" }, 404)
   }
 
-  const audioBuffers: Uint8Array[] = []
-  for (const chunk of chunkList) {
-    if (!chunk.bucketPath) continue
-    const data = await downloadFromStorage(chunk.bucketPath)
-    audioBuffers.push(data)
-  }
+  const data = await downloadFromStorage(chunk.bucketPath)
 
-  return c.json(
-    audioBuffers.map((buf, i) => ({
-      sequence: chunkList[i]?.sequence ?? i,
-      base64: Buffer.from(buf).toString("base64"),
-    })),
-  )
+  return new Response(data, {
+    headers: {
+      "Content-Type": "audio/wav",
+      "Content-Length": String(data.byteLength),
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  })
 })
 
 export { chunks }
