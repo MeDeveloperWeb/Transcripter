@@ -28,6 +28,7 @@ import {
   completeRecording,
 } from "@/lib/api"
 import { storeLocalAudio } from "@/lib/local-audio-store"
+import { chunkifyAudioFile } from "@/lib/audio-chunker"
 
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60)
@@ -87,10 +88,13 @@ export default function HomePage() {
     if (!file) return
     setUploading(true)
     try {
+      const chunks = await chunkifyAudioFile(file)
       const { id } = await createRecording()
-      await uploadChunk(id, 0, file, 0)
+      for (const chunk of chunks) {
+        await uploadChunk(id, chunk.sequence, chunk.blob, chunk.duration)
+      }
       await completeRecording(id)
-      await storeLocalAudio(id, [file])
+      await storeLocalAudio(id, chunks.map((c) => c.blob))
       router.push(`/recordings/${id}`)
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed")
