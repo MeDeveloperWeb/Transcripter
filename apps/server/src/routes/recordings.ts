@@ -38,8 +38,8 @@ recordings.get("/:id", async (c) => {
     include: {
       chunks: {
         orderBy: { sequence: "asc" },
-        include: { transcript: true },
       },
+      transcript: true,
     },
   })
   if (!recording) {

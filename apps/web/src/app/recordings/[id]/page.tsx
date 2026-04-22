@@ -20,8 +20,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@my-better-t-app/ui/components/card"
-import { triggerTranscription, getTranscripts, fetchCloudChunks } from "@/lib/api"
-import { getLocalAudioUrl, mergeBase64WavChunks } from "@/lib/local-audio-store"
+import { triggerTranscription, getTranscripts } from "@/lib/api"
+import { getLocalAudioUrl } from "@/lib/local-audio-store"
+import { useStreamingAudio } from "@/hooks/use-streaming-audio"
 
 interface Utterance {
   speaker: number
@@ -34,53 +35,27 @@ export default function RecordingPage() {
   const { id } = useParams<{ id: string }>()
   const localAudioUrl = getLocalAudioUrl(id)
 
-  const [cloudAudioUrl, setCloudAudioUrl] = useState<string | null>(null)
-  const [cloudLoading, setCloudLoading] = useState(true)
+  const cloud = useStreamingAudio(id)
   const [utterances, setUtterances] = useState<Utterance[]>([])
   const [transcribing, setTranscribing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
-  const cloudUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
     const load = async () => {
-      setCloudLoading(true)
       try {
-        const [chunks, transcriptData] = await Promise.all([
-          fetchCloudChunks(id),
-          getTranscripts(id),
-        ])
-
-        if (cancelled) return
-
-        if (chunks.length > 0) {
-          const merged = mergeBase64WavChunks(chunks.map((c) => c.base64))
-          const url = URL.createObjectURL(merged)
-          if (cloudUrlRef.current) URL.revokeObjectURL(cloudUrlRef.current)
-          cloudUrlRef.current = url
-          setCloudAudioUrl(url)
-        }
-
-        if (transcriptData.transcript?.status === "completed") {
-          setUtterances(transcriptData.transcript.utterances as Utterance[])
+        const data = await getTranscripts(id)
+        if (data.transcript?.status === "completed") {
+          setUtterances(data.transcript.utterances as Utterance[])
         }
       } finally {
-        if (!cancelled) {
-          setCloudLoading(false)
-          setLoaded(true)
-        }
+        setLoaded(true)
       }
     }
     load()
     return () => {
-      cancelled = true
       abortRef.current?.abort()
-      if (cloudUrlRef.current) {
-        URL.revokeObjectURL(cloudUrlRef.current)
-        cloudUrlRef.current = null
-      }
     }
   }, [id])
 
@@ -167,19 +142,29 @@ export default function RecordingPage() {
             <Cloud className="size-4" />
             Cloud Audio
           </CardTitle>
-          <CardDescription>Chunks fetched from S3 and merged in browser</CardDescription>
+          <CardDescription>
+            {cloud.loading
+              ? "Loading chunks from S3..."
+              : `${cloud.loadedCount}/${cloud.totalCount} chunks loaded`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {cloudLoading && (
+          {cloud.loading && cloud.loadedCount === 0 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Loading chunks from cloud...
+              Fetching chunks...
             </div>
           )}
-          {!cloudLoading && cloudAudioUrl && (
-            <audio controls src={cloudAudioUrl} className="w-full" preload="auto" />
+          {cloud.audioUrl && (
+            <audio
+              ref={cloud.setAudioElement}
+              controls
+              src={cloud.audioUrl}
+              className="w-full"
+              preload="auto"
+            />
           )}
-          {!cloudLoading && !cloudAudioUrl && (
+          {!cloud.loading && !cloud.audioUrl && (
             <p className="text-sm text-muted-foreground">No audio chunks found in cloud storage</p>
           )}
         </CardContent>
