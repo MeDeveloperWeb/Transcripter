@@ -22,6 +22,10 @@ chunks.post("/:recordingId", async (c) => {
     return c.json({ error: "Recording not found" }, 404)
   }
 
+  if (recording.status !== "recording") {
+    return c.json({ error: `Cannot upload chunks to recording with status: ${recording.status}` }, 409)
+  }
+
   const formData = await c.req.formData()
   const file = formData.get("audio") as File | null
   const sequenceStr = formData.get("sequence") as string | null

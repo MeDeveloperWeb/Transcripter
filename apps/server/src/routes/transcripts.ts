@@ -99,7 +99,8 @@ async function transcribeInBatches(chunks: Array<{ id: string; bucketPath: strin
 }
 
 async function processTranscription(chunkId: string, bucketPath: string) {
-  const chunk = await prisma.chunk.findUniqueOrThrow({ where: { id: chunkId } })
+  const chunk = await prisma.chunk.findUnique({ where: { id: chunkId } })
+  if (!chunk) return
 
   await prisma.transcript.upsert({
     where: { chunkId },

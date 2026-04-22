@@ -45,7 +45,7 @@ reconcile.post("/:recordingId", async (c) => {
   }
 
   const ackedChunks = serverChunks.filter((ch) => ch.status === "acked" && ch.bucketPath)
-  const existenceChecks = await Promise.all(
+  const existenceResults = await Promise.allSettled(
     ackedChunks.map(async (chunk) => ({
       chunk,
       exists: await existsInStorage(chunk.bucketPath!),
@@ -53,14 +53,15 @@ reconcile.post("/:recordingId", async (c) => {
   )
 
   const bucketMissing: number[] = []
-  for (const { chunk, exists } of existenceChecks) {
-    if (!exists) {
-      bucketMissing.push(chunk.sequence)
+  for (const result of existenceResults) {
+    if (result.status === "fulfilled" && !result.value.exists) {
+      bucketMissing.push(result.value.chunk.sequence)
       await prisma.chunk.update({
-        where: { id: chunk.id },
+        where: { id: result.value.chunk.id },
         data: { status: "pending" },
       })
     }
+    // rejected results (transient errors) are skipped — chunk status unchanged
   }
 
   const allMissing = [...new Set([...needsUpload, ...bucketMissing])].sort((a, b) => a - b)
