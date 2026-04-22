@@ -1,6 +1,6 @@
-const WAV_HEADER_SIZE = 44
+export const WAV_HEADER_SIZE = 44
 
-function buildWav(pcmChunks: ArrayBuffer[], sampleRate: number, bitsPerSample: number, numChannels: number): Blob {
+export function buildWav(pcmChunks: ArrayBuffer[], sampleRate: number, bitsPerSample: number, numChannels: number): Blob {
   const totalPcmSize = pcmChunks.reduce((s, b) => s + b.byteLength, 0)
   const header = new ArrayBuffer(WAV_HEADER_SIZE)
   const view = new DataView(header)
@@ -24,7 +24,7 @@ function buildWav(pcmChunks: ArrayBuffer[], sampleRate: number, bitsPerSample: n
   return new Blob([header, ...pcmChunks], { type: "audio/wav" })
 }
 
-function parseWavHeader(buf: ArrayBuffer): { sampleRate: number; bitsPerSample: number; numChannels: number } {
+export function parseWavHeader(buf: ArrayBuffer): { sampleRate: number; bitsPerSample: number; numChannels: number } {
   const view = new DataView(buf)
   return {
     numChannels: view.getUint16(22, true),
@@ -43,31 +43,6 @@ export async function mergeWavBlobs(blobs: Blob[]): Promise<Blob> {
   for (let i = 0; i < buffers.length; i++) {
     const buf = buffers[i]
     if (!buf || buf.byteLength <= WAV_HEADER_SIZE) continue
-    if (i === 0) {
-      const h = parseWavHeader(buf)
-      sampleRate = h.sampleRate
-      bitsPerSample = h.bitsPerSample
-      numChannels = h.numChannels
-    }
-    pcmChunks.push(buf.slice(WAV_HEADER_SIZE))
-  }
-
-  return buildWav(pcmChunks, sampleRate, bitsPerSample, numChannels)
-}
-
-export function mergeBase64WavChunks(base64Chunks: string[]): Blob {
-  const pcmChunks: ArrayBuffer[] = []
-  let sampleRate = 16000
-  let bitsPerSample = 16
-  let numChannels = 1
-
-  for (let i = 0; i < base64Chunks.length; i++) {
-    const binary = atob(base64Chunks[i])
-    const bytes = new Uint8Array(binary.length)
-    for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j)
-    const buf = bytes.buffer as ArrayBuffer
-
-    if (buf.byteLength <= WAV_HEADER_SIZE) continue
     if (i === 0) {
       const h = parseWavHeader(buf)
       sampleRate = h.sampleRate
