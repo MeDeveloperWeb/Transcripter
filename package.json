@@ -17,7 +17,10 @@
     "db:generate": "turbo -F @my-better-t-app/db db:generate",
     "db:migrate": "turbo -F @my-better-t-app/db db:migrate",
     "check": "ultracite check",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "start": "turbo start",
+    "start:web": "turbo -F web start",
+    "start:server": "turbo -F server start"
   },
   "dependencies": {
     "@my-better-t-app/env": "*",
